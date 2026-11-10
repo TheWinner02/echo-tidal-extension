@@ -17,3 +17,4 @@ release-notes.md
 *.jks
 *.keystore
 *.idsig
+/release/

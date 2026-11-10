@@ -4,7 +4,7 @@
     "type": "music",
     "name": "Tidal",
     "subtitle": "Tidal extension for Echo with Lossless FLAC playback",
-    "iconUrl": "https://raw.githubusercontent.com/TheWinner02/echo-tidal-extension/master/icon.png",
+    "iconUrl": "https://raw.githubusercontent.com/TheWinner02/echo-tidal-extension/master/icon.png?v=2",
     "url": "https://github.com/TheWinner02/echo-tidal-extension",
     "updateUrl": "https://api.github.com/repos/TheWinner02/echo-tidal-extension/releases"
   }
