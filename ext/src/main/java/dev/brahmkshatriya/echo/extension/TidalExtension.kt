@@ -205,12 +205,13 @@ open class TidalExtension internal constructor(
                     summary = manager.sessionSummaryForUi()
                 ) {
                     extensionScope.launch {
+                        manager.notice("Avvio verifica Turnstile... Completa il controllo nella finestra WebView.")
                         val status = manager.manualVerify(force = false)
                         when (status) {
                             VerificationStatus.OPENED -> manager.notify("Completa la verifica nella finestra aperta.")
                             VerificationStatus.BUSY, VerificationStatus.RATE_LIMITED -> {}
-                            VerificationStatus.COMPLETE -> manager.notify("Sessione già attiva!")
-                            else -> manager.notify("Errore nell'avvio della verifica.")
+                            VerificationStatus.COMPLETE -> manager.notify("Sessione verificata con successo!")
+                            else -> manager.notify("Verifica non completata o annullata.")
                         }
                     }
                 },
@@ -220,6 +221,7 @@ open class TidalExtension internal constructor(
                     summary = "Tenta immediatamente una nuova verifica della sessione anche prima della scadenza."
                 ) {
                     extensionScope.launch {
+                        manager.notice("Avvio verifica forzata... Completa il controllo nella finestra WebView.")
                         manager.manualVerify(force = true)
                     }
                 }

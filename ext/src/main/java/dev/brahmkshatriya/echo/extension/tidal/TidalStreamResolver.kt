@@ -1,5 +1,6 @@
 package dev.brahmkshatriya.echo.extension.tidal
 
+import dev.brahmkshatriya.echo.common.helpers.ClientException
 import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.await
 import dev.brahmkshatriya.echo.common.models.Streamable
 import kotlinx.coroutines.CancellationException
@@ -86,22 +87,42 @@ class TidalStreamResolver(
         getCachedStream(trackId)?.let { return@withContext it }
 
         val session = sessionManager.activeSession(deadlineMs)
-            ?: throw TidalGatewayException("AUTH_REQUIRED")
+            ?: run {
+                sessionManager.notice("Tidal FLAC richiede una verifica della sessione. Apri Impostazioni di Tidal in Echo e tocca 'Verifica sessione Tidal (WebView)'.")
+                throw ClientException.LoginRequired()
+            }
 
-        val ticket = sessionManager.requestTicket(trackId, deadlineMs)
+        val ticket = try {
+            sessionManager.requestTicket(trackId, deadlineMs)
+        } catch (e: TidalGatewayException) {
+            if (e.message == "AUTH_REQUIRED") {
+                sessionManager.notice("Tidal FLAC: sessione scaduta o non valida. Apri Impostazioni di Tidal in Echo e tocca 'Verifica sessione Tidal (WebView)'.")
+                throw ClientException.LoginRequired()
+            }
+            throw e
+        }
+
         val payload = JsonObject(
             mapOf(
                 "id" to JsonPrimitive(trackId),
                 "quality" to JsonPrimitive("LOSSLESS")
             )
         )
-        val resp = sessionManager.signedRequest(
-            method = "POST",
-            path = TidalSessionManager.TIDAL_DL_PATH,
-            payload = payload,
-            extraHeaders = mapOf("X-Zarz-Ticket" to ticket),
-            deadlineMs = deadlineMs
-        )
+        val resp = try {
+            sessionManager.signedRequest(
+                method = "POST",
+                path = TidalSessionManager.TIDAL_DL_PATH,
+                payload = payload,
+                extraHeaders = mapOf("X-Zarz-Ticket" to ticket),
+                deadlineMs = deadlineMs
+            )
+        } catch (e: TidalGatewayException) {
+            if (e.message == "AUTH_REQUIRED") {
+                sessionManager.notice("Tidal FLAC: sessione scaduta o non valida. Apri Impostazioni di Tidal in Echo e tocca 'Verifica sessione Tidal (WebView)'.")
+                throw ClientException.LoginRequired()
+            }
+            throw e
+        }
         val data = resp["data"] as? JsonObject
         val decoded = decodeTidalData(data) ?: return@withContext null
 

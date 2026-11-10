@@ -111,30 +111,46 @@ object TidalCrypto {
         )
     }
 
+    fun parseCallbackValues(url: String?, depth: Int = 0): Map<String, String> {
+        if (depth > 2 || url.isNullOrBlank()) return emptyMap()
+        val qIdx = url.indexOf('?')
+        val hIdx = url.indexOf('#')
+        val first = when {
+            qIdx >= 0 && hIdx >= 0 -> minOf(qIdx, hIdx)
+            qIdx >= 0 -> qIdx
+            hIdx >= 0 -> hIdx
+            else -> return emptyMap()
+        }
+        val tail = url.substring(first + 1).replace('#', '&')
+        val out = linkedMapOf<String, String>()
+        for (part in tail.split('&')) {
+            val eq = part.indexOf('=')
+            if (eq < 0) continue
+            runCatching {
+                val k = URLDecoder.decode(part.substring(0, eq), StandardCharsets.UTF_8.name())
+                val v = URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8.name())
+                if ((k == "grant" || k == "code" || k == "state" || k == "cb") && !out.containsKey(k)) {
+                    out[k] = v
+                }
+            }
+        }
+        if (!out.containsKey("grant") && !out.containsKey("code") && out.containsKey("cb")) {
+            val nested = parseCallbackValues(out["cb"], depth + 1)
+            if (nested.containsKey("grant") || nested.containsKey("code")) {
+                return nested
+            }
+        }
+        return out
+    }
+
     fun parseCallback(url: String): Pair<String, String>? {
         if (!url.startsWith("spotiflac://session-grant", ignoreCase = true)) {
             return null
         }
-        val queryIndex = url.indexOf('?')
-        if (queryIndex == -1 || queryIndex >= url.length - 1) return null
-        val queryString = url.substring(queryIndex + 1).replace('#', '&')
-        var grant: String? = null
-        var state: String? = null
-        for (part in queryString.split('&')) {
-            val eq = part.indexOf('=')
-            if (eq <= 0) continue
-            val key = runCatching { URLDecoder.decode(part.substring(0, eq), StandardCharsets.UTF_8.name()) }.getOrDefault("")
-            val value = runCatching { URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8.name()) }.getOrDefault("")
-            when (key) {
-                "grant" -> grant = value
-                "state" -> state = value
-            }
-        }
-        return if (!grant.isNullOrEmpty() && !state.isNullOrEmpty()) {
-            grant to state
-        } else {
-            null
-        }
+        val vals = parseCallbackValues(url)
+        val grant = (vals["grant"] ?: vals["code"])?.trim()?.ifEmpty { null } ?: return null
+        val state = vals["state"]?.trim()?.ifEmpty { null } ?: return null
+        return grant to state
     }
 
     private fun bytesToHex(bytes: ByteArray): String {

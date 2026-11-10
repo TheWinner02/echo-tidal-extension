@@ -34,6 +34,7 @@ import okhttp3.Response
 import java.io.IOException
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -41,13 +42,14 @@ class TidalSessionManager(
     baseHttpClient: OkHttpClient,
     internal val logs: DiagnosticLogBuffer,
     private val onNotify: (String) -> Unit = {},
-    internal val gatewayBaseUrl: String = "https://gateway.spotiflac.com",
+    internal val gatewayBaseUrl: String = "https://api.zarz.moe/v2",
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     val httpClient: OkHttpClient = withBrowserHeaders(baseHttpClient)
 
     private val sessionMutex = Mutex()
     private val autoMutex = Mutex()
+    private val verifyMutex = Mutex()
 
     @Volatile
     private var settingsRef: Settings? = null
@@ -72,13 +74,14 @@ class TidalSessionManager(
         const val KEY_COOLDOWN = "tidal_cooldown"
         const val KEY_SERVER_WAIT = "tidal_server_wait"
         const val KEY_AUTO_429 = "tidal_auto_429"
+        const val KEY_FORCE_GUARD = "tidal_force_guard"
+        const val INSTALL_KEY = "installation_id"
 
         const val CALLBACK_URI = "spotiflac://session-grant"
-        val CALLBACK_STOP_REGEX = Regex("^spotiflac://session-grant", RegexOption.IGNORE_CASE)
+        val CALLBACK_STOP_REGEX = Regex("^spotiflac://session-grant[?#].*", RegexOption.IGNORE_CASE)
 
         const val MODERN_CHROME_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
         private const val RENEW_WINDOW_MS = 60L * 60L * 1000L
         private const val PERIODIC_RENEW_MS = 6L * 60L * 60L * 1000L
@@ -133,6 +136,14 @@ class TidalSessionManager(
                 scheduleRenewalIfDue(scope)
             }
         }
+    }
+
+    fun installId(): String {
+        val current = settingsRef?.getString(INSTALL_KEY)?.trim().orEmpty()
+        if (StoredSession.HEX_32_REGEX.matches(current)) return current
+        val generated = TidalCrypto.generateInstallId(clock())
+        settingsRef?.putString(INSTALL_KEY, generated)
+        return generated
     }
 
     fun getStoredSession(): StoredSession? {
@@ -264,7 +275,7 @@ class TidalSessionManager(
             body = bodyStr,
             nowMs = clock()
         )
-        val url = gatewayBaseUrl.trimEnd('/') + "/v2" + path
+        val url = gatewayBaseUrl.trimEnd('/') + path
         val timeoutMs = remainingTimeoutMs(deadlineMs, 2500L)
         val reqClient = httpClient.newBuilder()
             .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
@@ -299,21 +310,26 @@ class TidalSessionManager(
 
     suspend fun requestTicket(trackId: String, deadlineMs: Long): String =
         withContext(Dispatchers.IO) {
+            val hash = TidalCrypto.sha256Hex("$TIDAL_TICKET_ALIAS:track:${trackId.trim().lowercase(Locale.ROOT)}")
             val payload = JsonObject(
                 mapOf(
-                    "alias" to JsonPrimitive(TIDAL_TICKET_ALIAS),
-                    "id" to JsonPrimitive(trackId)
+                    "capability" to JsonPrimitive("download_ticket"),
+                    "provider" to JsonPrimitive(TIDAL_TICKET_ALIAS),
+                    "resource_hash" to JsonPrimitive(hash)
                 )
             )
-            val resp = signedRequest("POST", "/ticket", payload, emptyMap(), deadlineMs)
-            resp["ticket"]?.jsonPrimitive?.contentOrNull
-                ?: (resp["data"] as? JsonObject)?.get("ticket")?.jsonPrimitive?.contentOrNull
+            val resp = signedRequest("POST", "/tickets", payload, emptyMap(), deadlineMs)
+            val ticket = resp.stringField("ticket_id")
+                ?: resp.stringField("ticket")
+                ?: (resp["data"] as? JsonObject)?.stringField("ticket_id")
+                ?: (resp["data"] as? JsonObject)?.stringField("ticket")
                 ?: throw TidalGatewayException("NO_TICKET")
+            ticket
         }
 
     private suspend fun tryRefreshSession(session: StoredSession, deadlineMs: Long): StoredSession? =
         withContext(Dispatchers.IO) {
-            val body = JsonObject(mapOf("app" to JsonPrimitive(TIDAL_APP)))
+            val body = JsonObject(mapOf("install_id" to JsonPrimitive(session.installId)))
             val bodyStr = body.toString()
             val sigHeaders = TidalCrypto.signedHeaders(
                 session = session,
@@ -330,7 +346,7 @@ class TidalSessionManager(
                 .build()
 
             val req = Request.Builder()
-                .url("$gatewayBaseUrl/v2/session/refresh")
+                .url("$gatewayBaseUrl/session/refresh")
                 .post(bodyStr.toRequestBody("application/json".toMediaType()))
                 .apply { sigHeaders.forEach { (k, v) -> header(k, v) } }
                 .build()
@@ -345,7 +361,9 @@ class TidalSessionManager(
                     if (!r.isSuccessful) return@withContext null
                     val obj = runCatching { json.parseToJsonElement(r.body.string()).jsonObject }.getOrNull()
                         ?: return@withContext null
-                    val expiresAt = obj["expiresAt"]?.jsonPrimitive?.contentOrNull
+                    val expiresAt = obj["expires_at"]?.jsonPrimitive?.contentOrNull
+                        ?: obj["expiresAt"]?.jsonPrimitive?.contentOrNull
+                        ?: (obj["data"] as? JsonObject)?.get("expires_at")?.jsonPrimitive?.contentOrNull
                         ?: (obj["data"] as? JsonObject)?.get("expiresAt")?.jsonPrimitive?.contentOrNull
                         .orEmpty()
                     session.copy(expiresAt = expiresAt)
@@ -358,22 +376,7 @@ class TidalSessionManager(
         }
 
     suspend fun manualVerify(force: Boolean = false): VerificationStatus = autoMutex.withLock {
-        val serverWait = remainingServerWait()
-        if (serverWait > 0L && !force) {
-            val msg = "Il server richiede ancora ${TidalDiagnostics.humanWait(serverWait)} di attesa."
-            log("Tidal: verifica manuale in attesa del server.")
-            notify(msg)
-            return VerificationStatus.RATE_LIMITED
-        }
-        val cooldown = remainingCooldown()
-        if (cooldown > 0L && !force) {
-            val msg = "Attendi ancora ${TidalDiagnostics.humanWait(cooldown)} prima di un altro tentativo."
-            log("Tidal: cooldown manuale attivo.")
-            notify(msg)
-            return VerificationStatus.BUSY
-        }
-        setWaitUntil(KEY_COOLDOWN, clock() + 60_000L)
-        executeVerification(automatic = false)
+        beginVerification(automatic = false, forceManual = force)
     }
 
     suspend fun startAutomatic(scope: CoroutineScope, reset: Boolean = false, reason: String = ""): Boolean {
@@ -383,7 +386,7 @@ class TidalSessionManager(
             try {
                 autoMutex.withLock {
                     if (reset) clearPendingVerification()
-                    executeVerification(automatic = true)
+                    beginVerification(automatic = true)
                 }
             } finally {
                 autoJob = null
@@ -392,72 +395,121 @@ class TidalSessionManager(
         return true
     }
 
-    private suspend fun executeVerification(automatic: Boolean): VerificationStatus = withContext(Dispatchers.IO) {
-        val installId = getStoredSession()?.installId ?: TidalCrypto.generateInstallId()
-        log("Tidal: avvio verifica bootstrap (automatica=$automatic)...")
-
-        val bootstrapUrl = "$gatewayBaseUrl/v2/bootstrap"
-        val payload = JsonObject(
-            mapOf(
-                "app" to JsonPrimitive(TIDAL_APP),
-                "install_id" to JsonPrimitive(installId)
-            )
-        )
-        val req = Request.Builder()
-            .url(bootstrapUrl)
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        val resp = try {
-            httpClient.newCall(req).await()
-        } catch (ce: CancellationException) {
-            throw ce
-        } catch (err: Throwable) {
-            log("Tidal: gateway non raggiungibile: ${TidalDiagnostics.failureCategory(err)}.")
-            return@withContext VerificationStatus.FAILED
+    suspend fun beginVerification(
+        automatic: Boolean,
+        deadlineMs: Long = clock() + 25_000L,
+        forceManual: Boolean = false
+    ): VerificationStatus = withContext(Dispatchers.IO) {
+        if (!verifyMutex.tryLock()) {
+            if (!automatic) {
+                log("Tidal: una verifica è già aperta; completala o chiudila prima di riprovare.")
+                notify("Una verifica è già aperta. Completa o chiudi quella pagina.")
+            }
+            return@withContext VerificationStatus.BUSY
         }
+        try {
+            if (getPendingVerification() != null) {
+                if (!automatic) {
+                    log("Tidal: una verifica è già aperta; completala o chiudila prima di riprovare.")
+                    notify("Una verifica è già aperta. Completa o chiudi quella pagina.")
+                }
+                return@withContext VerificationStatus.BUSY
+            }
 
-        resp.use { r ->
-            if (r.code == 429) {
-                parseAndApplyRetryAfter(r, KEY_SERVER_WAIT)
-                log("Tidal: limite richieste raggiunto (HTTP 429).")
+            if (forceManual) {
+                val serverWait = remainingServerWait()
+                val guardWait = maxOf(0L, getWaitUntil(KEY_FORCE_GUARD) - clock())
+                if (serverWait > 0L) {
+                    log("Tidal: verifica manuale in attesa del server; ancora circa ${TidalDiagnostics.humanWait(serverWait)}.")
+                    notify("Il server richiede ancora ${TidalDiagnostics.humanWait(serverWait)} di attesa.")
+                    return@withContext VerificationStatus.RATE_LIMITED
+                }
+                if (guardWait > 0L) {
+                    log("Tidal: attendi ancora circa ${TidalDiagnostics.humanWait(guardWait)} prima di un altro tentativo manuale.")
+                    notify("Attendi ${TidalDiagnostics.humanWait(guardWait)} prima di un altro tentativo manuale.")
+                    return@withContext VerificationStatus.RATE_LIMITED
+                }
+                setWaitUntil(KEY_FORCE_GUARD, clock() + 30_000L)
+            } else if (remainingCooldown() > 0L) {
+                val wait = remainingCooldown()
+                val msg = "Attendi ancora circa ${TidalDiagnostics.humanWait(wait)} prima di un altro tentativo."
+                log("Tidal: $msg")
+                if (!automatic) notify(msg)
                 return@withContext VerificationStatus.RATE_LIMITED
             }
-            if (!r.isSuccessful) {
-                log("Tidal: bootstrap fallito (HTTP ${r.code}).")
+
+            val install = installId()
+            log("Tidal: avvio verifica bootstrap (automatica=$automatic)...")
+
+            val bootUrl = (gatewayBaseUrl.trimEnd('/') + "/bootstrap").toHttpUrl().newBuilder()
+                .addQueryParameter("app_version", TIDAL_APP)
+                .addQueryParameter("install_id", install)
+                .build()
+
+            val timeoutMs = remainingTimeoutMs(deadlineMs, 6000L)
+            val callClient = httpClient.newBuilder()
+                .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .build()
+
+            val req = Request.Builder()
+                .url(bootUrl)
+                .header("User-Agent", MODERN_CHROME_UA)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            val bootstrapJson = try {
+                callClient.newCall(req).await().use { r ->
+                    val raw = runCatching { r.body.string() }.getOrDefault("")
+                    val parsed = parseJsonObjectOrNull(raw)
+                    if (!r.isSuccessful) {
+                        log("Tidal: avvio verifica non disponibile (HTTP ${r.code}).")
+                        if (r.code == 429) {
+                            parseAndApplyRetryAfter(r, KEY_SERVER_WAIT)
+                            if (!automatic) notify("Tidal: server HTTP 429. Riprova più tardi.")
+                            return@withContext VerificationStatus.RATE_LIMITED
+                        }
+                        if (!automatic) notify("Verifica Tidal non disponibile. Riprova più tardi.")
+                        return@withContext VerificationStatus.FAILED
+                    }
+                    parsed
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (err: Throwable) {
+                log("Tidal: gateway non raggiungibile: ${TidalDiagnostics.failureCategory(err)}.")
+                if (!automatic) notify("Verifica Tidal non disponibile. Controlla la rete.")
+                return@withContext VerificationStatus.FAILED
+            } ?: run {
+                log("Tidal: risposta bootstrap non valida.")
+                if (!automatic) notify("Risposta server Tidal non riconosciuta.")
                 return@withContext VerificationStatus.FAILED
             }
-            val obj = runCatching { json.parseToJsonElement(r.body.string()).jsonObject }.getOrNull()
-                ?: return@withContext VerificationStatus.FAILED
 
-            val challenge = obj["challenge_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val serverNonce = obj["server_nonce"]?.jsonPrimitive?.contentOrNull.orEmpty().ifEmpty { challenge }
+            if (saveSessionFromData(bootstrapJson, install, null)) {
+                clearPendingVerification()
+                log("Tidal: sessione verificata direttamente!")
+                if (!automatic) notify("Tidal attivato con successo!")
+                return@withContext VerificationStatus.COMPLETE
+            }
+
+            val challenge = bootstrapJson.stringField("challenge_id").orEmpty()
+            val serverNonce = bootstrapJson.stringField("server_nonce").orEmpty().ifEmpty { challenge }
             if (challenge.isEmpty() || serverNonce.isEmpty()) {
-                val directId = obj["id"]?.jsonPrimitive?.contentOrNull
-                val directSecret = obj["secret"]?.jsonPrimitive?.contentOrNull
-                if (!directId.isNullOrEmpty() && !directSecret.isNullOrEmpty()) {
-                    saveStoredSession(
-                        StoredSession(
-                            id = directId,
-                            secret = directSecret,
-                            expiresAt = obj["expiresAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                            installId = installId
-                        )
-                    )
-                    clearPendingVerification()
-                    notice("Sessione Tidal verificata direttamente!")
-                    return@withContext VerificationStatus.COMPLETE
-                }
-                log("Tidal: risposta bootstrap non valida.")
+                log("Tidal: risposta di verifica non valida.")
+                if (!automatic) notify("Verifica Tidal non riconosciuta.")
                 return@withContext VerificationStatus.FAILED
             }
 
             val webView = webViewClientRef ?: run {
-                log("Tidal: WebView non disponibile per la sfida.")
+                log("Tidal: WebView non disponibile.")
+                if (!automatic) notify("Impossibile aprire la verifica Tidal. Aggiorna Android System WebView.")
                 return@withContext VerificationStatus.AUTH_UNAVAILABLE
             }
 
-            val state = TidalCrypto.generateState(serverNonce, installId, clock())
+            val state = TidalCrypto.generateState(serverNonce, install, clock())
             val callbackParam = "$CALLBACK_URI?cb_version=v2grant&state=" +
                 URLEncoder.encode(state, StandardCharsets.UTF_8.name())
             val challengeUrl = (gatewayBaseUrl.trimEnd('/') + "/challenge").toHttpUrl().newBuilder()
@@ -466,15 +518,18 @@ class TidalSessionManager(
                 .build()
                 .toString()
 
-            val ttlSec = (obj["expires_in"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 300L).coerceIn(15L, 300L)
-            savePendingVerification(
-                PendingVerification(
-                    state = state,
-                    installId = installId,
-                    until = clock() + ttlSec * 1000L,
-                    automatic = automatic
-                )
+            val ttlSec = (bootstrapJson.doubleField("expires_in")?.toLong() ?: 300L).coerceIn(15L, 300L)
+            val pending = PendingVerification(
+                state = state,
+                installId = install,
+                until = clock() + ttlSec * 1000L,
+                automatic = automatic
             )
+            savePendingVerification(pending)
+            log("Tidal: pagina di verifica aperta${if (automatic) " automaticamente." else "."}")
+            if (automatic) {
+                notify("Verifica automatica avviata. Completa la verifica nella finestra.")
+            }
 
             val wvRequest = object : WebViewRequest.Headers<String> {
                 override val initialUrl: NetworkRequest =
@@ -489,75 +544,128 @@ class TidalSessionManager(
                 }
             }
 
-            log("Tidal: apertura verifica WebView...")
             val webResult = try {
                 webView.await(
                     showWebView = true,
                     reason = "Verifica Tidal",
                     request = wvRequest
-                ).getOrNull()
+                )
             } catch (ce: CancellationException) {
                 clearPendingVerification()
                 throw ce
             } catch (_: Throwable) {
                 clearPendingVerification()
                 log("Tidal: apertura WebView fallita.")
+                if (!automatic) notify("Impossibile aprire la verifica Tidal. Aggiorna Android System WebView.")
                 return@withContext VerificationStatus.AUTH_UNAVAILABLE
             }
 
-            val callbackUrl = webResult ?: return@withContext VerificationStatus.FAILED
-            val parsed = TidalCrypto.parseCallback(callbackUrl)
-            if (parsed != null && parsed.second == state) {
-                exchangeGrant(parsed.first, installId)
-                VerificationStatus.COMPLETE
-            } else {
-                VerificationStatus.FAILED
-            }
+            clearPendingVerification()
+            return@withContext finishVerification(pending, webResult)
+        } finally {
+            verifyMutex.unlock()
         }
     }
 
-    private fun exchangeGrant(grant: String, installId: String) {
-        val payload = JsonObject(
-            mapOf(
-                "grant" to JsonPrimitive(grant),
-                "installId" to JsonPrimitive(installId)
+    private suspend fun finishVerification(
+        pending: PendingVerification,
+        webResult: Result<String?>
+    ): VerificationStatus = withContext(Dispatchers.IO) {
+        try {
+            val callbackUrl = webResult.getOrNull()?.trim().orEmpty()
+            if (webResult.isFailure || callbackUrl.isEmpty()) {
+                throw IllegalStateException("CLOSED_OR_EXPIRED")
+            }
+            if (!callbackUrl.startsWith("$CALLBACK_URI?", ignoreCase = true) &&
+                !callbackUrl.startsWith("$CALLBACK_URI#", ignoreCase = true)
+            ) {
+                throw IllegalStateException("INVALID_CALLBACK")
+            }
+            if (clock() > pending.until) {
+                throw IllegalStateException("EXPIRED_CALLBACK")
+            }
+            val vals = TidalCrypto.parseCallbackValues(callbackUrl)
+            val grant = (vals["grant"] ?: vals["code"]).orEmpty().trim()
+            if (grant.isEmpty() || grant.length > 8192 || vals["state"]?.trim() != pending.state) {
+                throw IllegalStateException("INVALID_STATE")
+            }
+
+            val payload = JsonObject(
+                mapOf(
+                    "grant" to JsonPrimitive(grant),
+                    "install_id" to JsonPrimitive(pending.installId),
+                    "app_version" to JsonPrimitive(TIDAL_APP),
+                    "platform" to JsonPrimitive("extension")
+                )
             )
-        )
-        val req = Request.Builder()
-            .url("$gatewayBaseUrl/v2/session/exchange")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+            val exchangeUrl = (gatewayBaseUrl.trimEnd('/') + "/session/exchange").toHttpUrl()
+            val callClient = httpClient.newBuilder()
+                .callTimeout(6500L, TimeUnit.MILLISECONDS)
+                .connectTimeout(6500L, TimeUnit.MILLISECONDS)
+                .readTimeout(6500L, TimeUnit.MILLISECONDS)
+                .build()
+            val req = Request.Builder()
+                .url(exchangeUrl)
+                .header("User-Agent", MODERN_CHROME_UA)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
 
-        httpClient.newCall(req).enqueue(object : okhttp3.Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                log("Tidal: scambio grant fallito: ${e.message}")
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use { r ->
-                    if (!r.isSuccessful) {
-                        log("Tidal: scambio grant rifiutato (HTTP ${r.code})")
-                        return
-                    }
-                    val body = runCatching { json.parseToJsonElement(r.body.string()).jsonObject }.getOrNull()
-                    val id = body?.get("id")?.jsonPrimitive?.contentOrNull
-                    val secret = body?.get("secret")?.jsonPrimitive?.contentOrNull
-                    val exp = body?.get("expiresAt")?.jsonPrimitive?.contentOrNull.orEmpty()
-                    if (!id.isNullOrEmpty() && !secret.isNullOrEmpty()) {
-                        saveStoredSession(
-                            StoredSession(
-                                id = id,
-                                secret = secret,
-                                expiresAt = exp,
-                                installId = installId
-                            )
-                        )
-                        clearPendingVerification()
-                        notice("Sessione Tidal verificata con successo!")
-                    }
+            callClient.newCall(req).await().use { r ->
+                val raw = runCatching { r.body.string() }.getOrDefault("")
+                val data = parseJsonObjectOrNull(raw)
+                if (r.code == 429) {
+                    parseAndApplyRetryAfter(r, KEY_SERVER_WAIT)
+                    log("Tidal: creazione sessione in pausa dopo HTTP 429.")
+                    return@use VerificationStatus.RATE_LIMITED
                 }
+                if (!r.isSuccessful || !saveSessionFromData(data, pending.installId, null)) {
+                    log("Tidal: sessione non creata (HTTP ${r.code}).")
+                    throw IllegalStateException("EXCHANGE_FAILED")
+                }
+                log("Tidal: sessione verificata con successo.")
+                if (!pending.automatic) notify("Tidal verificato con successo!")
+                VerificationStatus.COMPLETE
             }
-        })
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Throwable) {
+            log("Tidal: verifica non completata o annullata.")
+            if (!pending.automatic) notify("Verifica non completata. Riprova dalle impostazioni.")
+            VerificationStatus.FAILED
+        }
+    }
+
+    private fun saveSessionFromData(
+        data: JsonObject?,
+        installId: String,
+        old: StoredSession?
+    ): Boolean {
+        val id = data?.stringField("session_id").orEmpty()
+            .ifEmpty { data?.stringField("id").orEmpty() }
+            .ifEmpty { old?.id.orEmpty() }
+        val secret = data?.stringField("session_secret").orEmpty()
+            .ifEmpty { data?.stringField("secret").orEmpty() }
+            .ifEmpty { old?.secret.orEmpty() }
+        val expiresAt = data?.stringField("expires_at").orEmpty()
+            .ifEmpty { data?.stringField("expiresAt").orEmpty() }
+            .ifEmpty { old?.expiresAt.orEmpty() }
+
+        val candidate = StoredSession(
+            id = id,
+            secret = secret,
+            expiresAt = expiresAt,
+            installId = installId
+        )
+        if (!candidate.isValid()) return false
+        saveStoredSession(candidate)
+        return true
+    }
+
+    private fun parseJsonObjectOrNull(raw: String): JsonObject? {
+        if (raw.isBlank()) return null
+        return runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull()
     }
 
     private fun parseAndApplyRetryAfter(r: Response, key: String) {
@@ -571,5 +679,25 @@ class TidalSessionManager(
         if (pending.until <= clock()) {
             clearPendingVerification()
         }
+    }
+}
+
+internal fun JsonObject.stringField(name: String): String? =
+    (this[name] as? JsonPrimitive)?.contentOrNull?.trim()
+        ?: (this["data"] as? JsonObject)?.stringField(name)
+        ?: (this["session"] as? JsonObject)?.stringField(name)
+
+internal fun JsonObject.doubleField(name: String): Double? =
+    (this[name] as? JsonPrimitive)?.doubleOrNull
+        ?: (this[name] as? JsonPrimitive)?.contentOrNull?.trim()?.toDoubleOrNull()
+        ?: (this["data"] as? JsonObject)?.doubleField(name)
+
+internal fun JsonObject.booleanField(name: String): Boolean? {
+    val raw = (this[name] as? JsonPrimitive)?.contentOrNull?.trim()?.lowercase(Locale.ROOT)
+        ?: return (this["data"] as? JsonObject)?.booleanField(name)
+    return when (raw) {
+        "true" -> true
+        "false" -> false
+        else -> null
     }
 }
