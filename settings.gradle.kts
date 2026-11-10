@@ -18,6 +18,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FLAC Bridge Multi"
+rootProject.name = "echo-tidal-extension"
 include(":app")
 include(":ext")
