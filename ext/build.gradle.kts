@@ -38,10 +38,10 @@ val extAuthorUrl: String? by project
 val extRepoUrl: String? by project
 val extUpdateUrl: String? by project
 
-val gitHash = runCatching { execute("git", "rev-parse", "HEAD").take(7) }.getOrDefault("2300000")
-val gitCount = runCatching { execute("git", "rev-list", "--count", "HEAD").toInt() }.getOrDefault(12)
-val verCode = providers.gradleProperty("extVersionCode").map { it.toInt() }.getOrElse(maxOf(12, gitCount))
-val verName = providers.gradleProperty("extVersionName").getOrElse("v2.3.0-$gitHash")
+val verCode = (project.findProperty("extVersionCode") as? String)?.toIntOrNull()
+    ?: runCatching { execute("git", "rev-list", "--count", "HEAD").toInt() }.getOrDefault(1)
+val verName = (project.findProperty("extVersionName") as? String)
+    ?: runCatching { "v" + execute("git", "rev-parse", "HEAD").take(7) }.getOrDefault("v2.3.2")
 
 publishing {
     publications {
@@ -65,15 +65,19 @@ tasks {
                     "Extension-Id" to extId,
                     "Extension-Type" to extType,
                     "Extension-Class" to extClass,
+
                     "Extension-Version-Code" to verCode,
                     "Extension-Version-Name" to verName,
-                    "Extension-Icon-Url" to (extIconUrl ?: ""),
+
+                    "Extension-Icon-Url" to extIconUrl,
                     "Extension-Name" to extName,
-                    "Extension-Description" to (extDescription ?: ""),
+                    "Extension-Description" to extDescription,
+
                     "Extension-Author" to extAuthor,
-                    "Extension-Author-Url" to (extAuthorUrl ?: ""),
-                    "Extension-Repo-Url" to (extRepoUrl ?: ""),
-                    "Extension-Update-Url" to (extUpdateUrl ?: "")
+                    "Extension-Author-Url" to extAuthorUrl,
+
+                    "Extension-Repo-Url" to extRepoUrl,
+                    "Extension-Update-Url" to extUpdateUrl
                 )
             )
         }

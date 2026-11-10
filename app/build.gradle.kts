@@ -32,10 +32,10 @@ val extAuthorUrl: String? by project
 val extRepoUrl: String? by project
 val extUpdateUrl: String? by project
 
-val gitHash = runCatching { execute("git", "rev-parse", "HEAD").take(7) }.getOrDefault("2320000")
-val gitCount = runCatching { execute("git", "rev-list", "--count", "HEAD").toInt() }.getOrDefault(14)
-val verCode = providers.gradleProperty("extVersionCode").map { it.toInt() }.getOrElse(maxOf(14, gitCount))
-val verName = providers.gradleProperty("extVersionName").getOrElse("v2.3.2-$gitHash")
+val verCode = (project.findProperty("extVersionCode") as? String)?.toIntOrNull()
+    ?: runCatching { execute("git", "rev-list", "--count", "HEAD").toInt() }.getOrDefault(1)
+val verName = (project.findProperty("extVersionName") as? String)
+    ?: runCatching { "v" + execute("git", "rev-parse", "HEAD").take(7) }.getOrDefault("v2.3.2")
 
 val outputDir = file("${layout.buildDirectory.asFile.get()}/generated/proguard")
 val generatedProguard = file("${outputDir}/generated-rules.pro")
@@ -74,11 +74,13 @@ android {
         applicationId = "dev.brahmkshatriya.echo.extension.$extId"
         minSdk = 24
         targetSdk = 36
+        versionCode = verCode
+        versionName = verName
 
         manifestPlaceholders.apply {
-            put("type", "dev.brahmkshatriya.echo.${extType}")
+            put("type", "dev.brahmkshatriya.echo.$extType")
             put("id", extId)
-            put("class_path", "dev.brahmkshatriya.echo.extension.${extClass}")
+            put("class_path", "dev.brahmkshatriya.echo.extension.$extClass")
             put("version", verName)
             put("version_code", verCode.toString())
             put("icon_url", extIconUrl ?: "")
@@ -95,6 +97,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 generatedProguard.absolutePath

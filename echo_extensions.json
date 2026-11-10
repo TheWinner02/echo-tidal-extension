@@ -4,8 +4,8 @@
     "type": "music",
     "name": "FLAC Bridge Multi",
     "subtitle": "Bridge e sorgente FLAC multi-provider (Tidal, Qobuz, Deezer, Amazon Music) con scelta manuale server",
-    "iconUrl": "https://gitlab.com/solidsnakeater/echo-flac-bridge/-/raw/main/icon.png",
-    "url": "https://gitlab.com/solidsnakeater/echo-flac-bridge",
-    "updateUrl": "https://gitlab.com/api/v4/projects/solidsnakeater%2Fecho-flac-bridge/releases/permalink/latest"
+    "iconUrl": "https://raw.githubusercontent.com/TheWinner02/echo-flac-bridge-extension/master/icon.png",
+    "url": "https://github.com/TheWinner02/echo-flac-bridge-extension",
+    "updateUrl": "https://api.github.com/repos/TheWinner02/echo-flac-bridge-extension/releases"
   }
 ]

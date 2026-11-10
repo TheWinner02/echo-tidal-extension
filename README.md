@@ -1,10 +1,10 @@
 # FLAC Bridge Multi per Echo / Echo Fluid
 
-Porting nativo in **Kotlin** dell'estensione [FLAC-Bridge-Multi-Myspoti](https://gitlab.com/solidsnakeater/flac-bridge-myspoti) per **Echo / Echo Fluid / Echo Nightly** (`dev.brahmkshatriya.echo`, API `echo-common:1.0`).
+Porting nativo in **Kotlin** dell'estensione FLAC Bridge Multi per **Echo / Echo Fluid / Echo Nightly** (`dev.brahmkshatriya.echo`, API `echo-common:1.0`).
 
-- **Repository GitLab**: <https://gitlab.com/solidsnakeater/echo-flac-bridge>
-- **Endpoint aggiornamenti automatici Echo**: `https://gitlab.com/api/v4/projects/solidsnakeater%2Fecho-flac-bridge/releases/permalink/latest`
-- **Repository JSON Echo (opzionale)**: `https://gitlab.com/solidsnakeater/echo-flac-bridge/-/raw/main/echo_extensions.json`
+- **Repository GitHub**: <https://github.com/TheWinner02/echo-flac-bridge-extension>
+- **Endpoint aggiornamenti automatici in-app Echo**: `https://api.github.com/repos/TheWinner02/echo-flac-bridge-extension/releases`
+- **Repository JSON Echo (opzionale)**: `https://raw.githubusercontent.com/TheWinner02/echo-flac-bridge-extension/master/echo_extensions.json`
 
 Risolve flussi audio **FLAC lossless** reali tramite quattro sorgenti (**Tidal**, **Qobuz**, **Deezer**, **Amazon Music**), mantenendo il protocollo gateway `ZARZ-HMAC-V1`, la selezione manuale del server direttamente nel player, la verifica sessioni tramite WebView integrata, il rinnovo automatico ogni 6 ore e la gestione completa dei limiti `HTTP 429`.
 
@@ -15,10 +15,10 @@ Risolve flussi audio **FLAC lossless** reali tramite quattro sorgenti (**Tidal**
 ### 1. Doppia modalità operativa e Scelta Manuale Server nel Player
 L'estensione implementa `MusicExtensionsProvider` e può lavorare in **due modi** (selezionabili dalle impostazioni):
 
-- **Bridge Integrato (`Automatica` / `Solo Bridge`)** — *Comportamento identico a Myspoti*:
+- **Bridge Integrato (`Automatica` / `Solo Bridge`)** — *Comportamento integrato trasparente*:
   - Avvolge trasparentemente un'estensione metadati già installata in Echo (ad es. **Spotify**, YouTube Music, Deezer, ecc.).
   - Mantiene intatti **Home, Libreria, Playlist, Ricerca, Album, Artisti, Radio, Like/Salvataggi e video di sfondo (Spotify Canvas)** dell'estensione metadati.
-  - Nel selettore **Server / Qualità** del player di Echo Fluid espone sia il chip **`Auto · <Provider>`** (preselezionato di default) sia i chip manuali **`Tidal · FLAC`**, **`Qobuz · FLAC`**, **`Deezer · FLAC`**, **`Amazon Music · FLAC`** e **`Spotify`** (audio originale), risolvendo solo il server effettivamente selezionato.
+  - Nel selettore **Server / Qualità** del player di Echo Fluid espone sia il chip **`Auto · <Provider>`** (preselezionato di default) sia i chip manuali **`Tidal · FLAC`**, **`Qobuz · FLAC`**, **`Deezer · FLAC`**, **`Amazon Music · FLAC`** e l'estensione metadati originale, risolvendo solo il server effettivamente selezionato.
 - **Sorgente FLAC Autonoma (`Solo Sorgente FLAC autonoma` o abbinata a `Combine Extension`)**:
   - Funziona anche **senza alcuna altra estensione installata**, permettendo di cercare brani direttamente sui cataloghi lossless (Qobuz, Tidal, Deezer) e riprodurli in FLAC.
   - Compatibile con **Combine Extension** (`echo_combine`).
@@ -45,35 +45,32 @@ L'estensione implementa `MusicExtensionsProvider` e può lavorare in **due modi*
 
 ## Installazione in Echo Fluid
 
-### Metodo A — File `.eapk` diretto
-1. Trasferisci **`echo_flac_bridge-v2.3.2.eapk`** sul telefono Android.
-2. Apri **Echo Fluid** -> **Estensioni** -> **`+` (Aggiungi estensione)** -> **Installa da file** e seleziona `echo_flac_bridge-v2.3.2.eapk`.
-
-### Metodo B — Repository JSON da GitLab
+### Metodo A — Aggiornamento in-app e Repository JSON
 In Echo Fluid -> **Estensioni** -> **Aggiungi repository**, incolla:
 ```text
-https://gitlab.com/solidsnakeater/echo-flac-bridge/-/raw/main/echo_extensions.json
+https://raw.githubusercontent.com/TheWinner02/echo-flac-bridge-extension/master/echo_extensions.json
 ```
+L'estensione apparirà nella lista con supporto agli aggiornamenti automatici in-app.
+
+### Metodo B — File `.eapk` diretto
+1. Scarica l'ultima release `.eapk` dalla sezione **Releases** su GitHub.
+2. Apri **Echo Fluid** -> **Estensioni** -> **`+` (Aggiungi estensione)** -> **Installa da file** e seleziona il file `.eapk`.
 
 ---
 
-## Aggiornamenti Automatici tramite GitLab CI/CD (`.gitlab-ci.yml`)
+## Logica di Aggiornamento In-App e Versioning
 
-Il file `.gitlab-ci.yml` compila automaticamente i test e il pacchetto `.eapk`, lo carica nel **GitLab Generic Package Registry** tramite `$CI_JOB_TOKEN` (senza bisogno di creare token manuali) e pubblica una **GitLab Release** rilevata da Echo Fluid tramite `extUpdateUrl`.
-
-### Firma persistente Android (consigliata per aggiornamenti in-place)
-In **GitLab -> Settings -> CI/CD -> Variables**, aggiungi:
-- `SIGNING_KEYSTORE`: contenuto in Base64 del keystore `.jks` (opzione *Masked* attiva, *Protect variable* disattivata se vuoi usarla anche su branch/tag non protetti)
-- `SIGNING_STORE_PASSWORD`: password del keystore (*Masked* attiva)
-
-Per rilasciare una nuova versione basta fare `git push` su `main` (genera `v<extBaseVersion>-<commit>`) oppure creare un tag come `v2.3.3` (aggiornando `extBaseVersion` in `gradle.properties`).
+Il sistema di aggiornamento è allineato allo standard di **Echo Fluid** e alle estensioni ufficiali:
+- **`gradle.properties`**: definisce `extVersionCode`, `extVersionName`, `extRepoUrl` e `extUpdateUrl` (`https://api.github.com/repos/TheWinner02/echo-flac-bridge-extension/releases`).
+- **`AndroidManifest.xml`**: espone i metadati `version`, `version_code`, `repo_url` e `update_url` letti dall'`ExtensionParser` di Echo.
+- **GitHub Actions (`nightly.yml`)**: compila e firma l'estensione (`.eapk`), pubblicando la release su GitHub affinché l'`AppUpdater` di Echo rilevi automaticamente le nuove versioni in-app tramite il confronto semver.
 
 ---
 
 ## Struttura del progetto
 
 ```text
-echo-flac-bridge/
+echo-flac-bridge-extension/
 ├── app/                                  # Modulo Android APK / .eapk (AndroidManifest + R8 + icone)
 ├── ext/                                  # Modulo Kotlin dell'estensione Echo (echo-common:1.0)
 │   ├── src/main/java/dev/brahmkshatriya/echo/extension/
@@ -88,20 +85,14 @@ echo-flac-bridge/
 │       ├── FlacBridgeExtensionTest.kt    # Suite test end-to-end JUnit + Coroutines
 │       └── MockedSettings.kt             # Settings in-memory per i test
 ├── echo_extensions.json                  # Indice repository JSON compatibile con Echo Fluid
-├── .gitlab-ci.yml                        # Pipeline GitLab CI/CD automatica (build + package + release)
+├── .github/workflows/build.yml           # Pipeline GitHub Actions (build + package + release in-app)
 └── release/                              # Pacchetti pronti (.eapk, .apk, .jar)
 ```
 
 ## Compilazione manuale da sorgente
 
-Requisiti: **JDK 21** e **Android SDK** (`compileSdk = 36`, `build-tools = 35.0.0`).
+Requisiti: **JDK 21** e **Android SDK** (`compileSdk = 36`).
 
 ```bash
 ./gradlew :ext:check :ext:shadowJar :app:assembleRelease
 ```
-
----
-
-## Licenza
-
-Distribuito sotto licenza **GNU General Public License v3.0 (GPL-3.0)**, in continuità con il progetto originale [FLAC-Bridge-Multi-Myspoti](https://gitlab.com/solidsnakeater/flac-bridge-myspoti).
