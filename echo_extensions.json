@@ -1,11 +1,11 @@
 [
   {
-    "id": "echo_flac_bridge",
+    "id": "tidal",
     "type": "music",
-    "name": "FLAC Bridge Multi",
-    "subtitle": "Bridge e sorgente FLAC multi-provider (Tidal, Qobuz, Deezer, Amazon Music) con scelta manuale server",
-    "iconUrl": "https://raw.githubusercontent.com/TheWinner02/echo-flac-bridge-extension/master/icon.png",
-    "url": "https://github.com/TheWinner02/echo-flac-bridge-extension",
-    "updateUrl": "https://api.github.com/repos/TheWinner02/echo-flac-bridge-extension/releases"
+    "name": "Tidal",
+    "subtitle": "Tidal extension for Echo with Lossless FLAC playback",
+    "iconUrl": "https://raw.githubusercontent.com/TheWinner02/echo-tidal-extension/master/icon.png",
+    "url": "https://github.com/TheWinner02/echo-tidal-extension",
+    "updateUrl": "https://api.github.com/repos/TheWinner02/echo-tidal-extension/releases"
   }
 ]
