@@ -1,0 +1,28 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 7 symmetric rounded equalizer bars centered at (54, 54) -->
+    <path
+        android:fillColor="#5CE1C6"
+        android:pathData="M27,47 A3,3 0 0,1 33,47 L33,61 A3,3 0 0,1 27,61 Z" />
+    <path
+        android:fillColor="#57DCD0"
+        android:pathData="M35,42 A3,3 0 0,1 41,42 L41,66 A3,3 0 0,1 35,66 Z" />
+    <path
+        android:fillColor="#51D6D8"
+        android:pathData="M43,36 A3,3 0 0,1 49,36 L49,72 A3,3 0 0,1 43,72 Z" />
+    <path
+        android:fillColor="#4AD0DF"
+        android:pathData="M51,31 A3,3 0 0,1 57,31 L57,77 A3,3 0 0,1 51,77 Z" />
+    <path
+        android:fillColor="#46CAE4"
+        android:pathData="M59,36 A3,3 0 0,1 65,36 L65,72 A3,3 0 0,1 59,72 Z" />
+    <path
+        android:fillColor="#43C4E8"
+        android:pathData="M67,42 A3,3 0 0,1 73,42 L73,66 A3,3 0 0,1 67,66 Z" />
+    <path
+        android:fillColor="#40BEEB"
+        android:pathData="M75,47 A3,3 0 0,1 81,47 L81,61 A3,3 0 0,1 75,61 Z" />
+</vector>

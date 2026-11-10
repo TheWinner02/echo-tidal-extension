@@ -1,0 +1,135 @@
+name: Build and Release Echo Extension
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Tag versione opzionale (es. v2.3.3). Vuoto = automatico da gradle.properties + commit'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '21'
+          cache: gradle
+
+      - name: Compute Version Metadata
+        run: |
+          set -e
+          BASE_VER=$(grep '^extBaseVersion=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          if [ -z "$BASE_VER" ]; then BASE_VER="2.3.2"; fi
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          VER_CODE=$(( COMMIT_COUNT + 20 ))
+
+          if [ -n "${{ inputs.version_tag }}" ]; then
+            VERSION="${{ inputs.version_tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="v${BASE_VER}-${SHORT_SHA}"
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VER_CODE=$VER_CODE" >> "$GITHUB_ENV"
+          printf "## FLAC Bridge Multi (%s)\n\nUltimo commit: %s\n" "$VERSION" "${{ github.event.head_commit.message }}" > release-notes.md
+
+      - name: Run Unit Tests and Build Release APK
+        env:
+          GRADLE_OPTS: "-Xmx2048m -XX:MaxMetaspaceSize=512m"
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :ext:check :ext:shadowJar :app:assembleRelease \
+            "-PextVersionName=${VERSION}" \
+            "-PextVersionCode=${VER_CODE}" \
+            --no-daemon
+
+      - name: Sign APK and Package .eapk
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          set -e
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
+          UNSIGNED_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          mkdir -p out
+
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$STORE_PASSWORD" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > signing.jks
+            KS_FILE="signing.jks"
+            KS_PASS="$STORE_PASSWORD"
+            # Detect first alias inside provided keystore
+            KS_ALIAS=$(keytool -list -keystore "$KS_FILE" -storepass "$KS_PASS" | grep -E "PrivateKeyEntry|keyEntry" | head -n 1 | cut -d',' -f1 | tr -d '[:space:]')
+            if [ -z "$KS_ALIAS" ]; then KS_ALIAS="key0"; fi
+          else
+            keytool -genkeypair \
+              -keystore temp-release.jks \
+              -storetype PKCS12 \
+              -alias echo_flac_bridge \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass echoflacbridge \
+              -keypass echoflacbridge \
+              -dname "CN=FLAC Bridge Multi, OU=Echo Extension, O=solidsnakeater, C=IT"
+            KS_FILE="temp-release.jks"
+            KS_ALIAS="echo_flac_bridge"
+            KS_PASS="echoflacbridge"
+          fi
+
+          EAPK_FILE="out/echo_flac_bridge-${VERSION}.eapk"
+          APK_FILE="out/echo_flac_bridge-${VERSION}.apk"
+
+          "$BUILD_TOOLS_DIR/zipalign" -p -f 4 "$UNSIGNED_APK" out/aligned.apk
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$KS_FILE" \
+            --ks-key-alias "$KS_ALIAS" \
+            --ks-pass "pass:$KS_PASS" \
+            --key-pass "pass:$KS_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$EAPK_FILE" \
+            out/aligned.apk
+
+          cp "$EAPK_FILE" "$APK_FILE"
+          rm -f out/aligned.apk out/*.idsig signing.jks temp-release.jks
+          echo "EAPK_FILE=$EAPK_FILE" >> "$GITHUB_ENV"
+          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: echo-flac-bridge-${{ env.VERSION }}
+          path: |
+            ${{ env.EAPK_FILE }}
+            ${{ env.APK_FILE }}
+
+      - name: Publish GitHub Release for Echo Auto-Updater
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: ${{ env.VERSION }}
+          body_path: release-notes.md
+          make_latest: true
+          files: |
+            ${{ env.EAPK_FILE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
