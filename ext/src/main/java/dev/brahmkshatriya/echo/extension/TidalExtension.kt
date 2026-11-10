@@ -194,9 +194,9 @@ open class TidalExtension internal constructor(
             key = "cat_session",
             items = listOf(
                 SettingSwitch(
-                    title = "Verifica automatica e rinnovo ~6 ore",
+                    title = "Rinnovo automatico silenzioso in background",
                     key = TidalSessionManager.KEY_AUTO_VERIFY,
-                    summary = "Mantiene attiva la sessione Tidal rinnovandola silenziosamente ogni 6 ore.",
+                    summary = "Mantiene attiva la sessione Tidal rinnovandola silenziosamente in background prima della scadenza, senza aprire la WebView.",
                     defaultValue = true
                 ),
                 SettingOnClick(

@@ -244,14 +244,14 @@ class TidalSessionManager(
         val stored = getStoredSession() ?: return
         val exp = stored.expiresAtEpochMs() ?: return
         val diff = exp - clock()
-        if (diff in 0L..PERIODIC_RENEW_MS) {
+        if (diff in 0L..RENEW_WINDOW_MS) {
             scope.launch {
                 sessionMutex.withLock {
                     val fresh = getStoredSession() ?: return@withLock
                     val refreshed = tryRefreshSession(fresh, clock() + 10_000L)
                     if (refreshed != null) {
                         saveStoredSession(refreshed)
-                        log("Tidal: rinnovo periodico completato.")
+                        log("Tidal: rinnovo silenzioso in background completato.")
                     }
                 }
             }
@@ -386,7 +386,7 @@ class TidalSessionManager(
             try {
                 autoMutex.withLock {
                     if (reset) clearPendingVerification()
-                    beginVerification(automatic = true)
+                    scheduleRenewalIfDue(this)
                 }
             } finally {
                 autoJob = null
