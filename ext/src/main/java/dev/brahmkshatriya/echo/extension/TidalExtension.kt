@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.extension
 
+import dev.brahmkshatriya.echo.common.providers.GlobalSettingsProvider
+
 import dev.brahmkshatriya.echo.common.clients.AlbumClient
 import dev.brahmkshatriya.echo.common.clients.ArtistClient
 import dev.brahmkshatriya.echo.common.clients.ExtensionClient
@@ -74,7 +76,11 @@ open class TidalExtension internal constructor(
     WebViewClientProvider,
     MessageFlowProvider,
     NetworkConnectionProvider,
-    SettingsChangeListenerClient {
+    SettingsChangeListenerClient, GlobalSettingsProvider {
+    override fun setGlobalSettings(globalSettings: Settings) {
+        ExtensionText.settings = globalSettings
+    }
+
 
     @Suppress("unused")
     constructor() : this(
@@ -190,38 +196,38 @@ open class TidalExtension internal constructor(
 
     override suspend fun getSettingItems(): List<Setting> {
         val sessionCategory = SettingCategory(
-            title = "Sessione Tidal FLAC",
+            title = ExtensionText.get("providers.tidal_flac_session_dfe86e", "Tidal FLAC session"),
             key = "cat_session",
             items = listOf(
                 SettingSwitch(
-                    title = "Rinnovo automatico silenzioso in background",
+                    title = ExtensionText.get("providers.automatically_renew_session_in_background_12d99d", "Automatically renew session in background"),
                     key = TidalSessionManager.KEY_AUTO_VERIFY,
-                    summary = "Mantiene attiva la sessione Tidal rinnovandola silenziosamente in background prima della scadenza, senza aprire la WebView.",
+                    summary = ExtensionText.get("providers.keep_the_tidal_session_active_by_renewing_it_in__fae81d", "Keep the Tidal session active by renewing it in the background before it expires, without opening a WebView."),
                     defaultValue = true
                 ),
                 SettingOnClick(
-                    title = "Verifica sessione Tidal (WebView)",
+                    title = ExtensionText.get("providers.verify_tidal_session_webview_0464a0", "Verify Tidal session (WebView)"),
                     key = "verify_tidal",
                     summary = manager.sessionSummaryForUi()
                 ) {
                     extensionScope.launch {
-                        manager.notice("Avvio verifica Turnstile... Completa il controllo nella finestra WebView.")
+                        manager.notice(ExtensionText.get("providers.starting_verification_complete_the_check_in_the__d0d6e5", "Starting verification… Complete the check in the WebView window."))
                         val status = manager.manualVerify(force = false)
                         when (status) {
-                            VerificationStatus.OPENED -> manager.notify("Completa la verifica nella finestra aperta.")
+                            VerificationStatus.OPENED -> manager.notify(ExtensionText.get("providers.complete_verification_in_the_open_window_505550", "Complete verification in the open window."))
                             VerificationStatus.BUSY, VerificationStatus.RATE_LIMITED -> {}
-                            VerificationStatus.COMPLETE -> manager.notify("Sessione verificata con successo!")
-                            else -> manager.notify("Verifica non completata o annullata.")
+                            VerificationStatus.COMPLETE -> manager.notify(ExtensionText.get("providers.session_verified_successfully_67317a", "Session verified successfully!"))
+                            else -> manager.notify(ExtensionText.get("providers.verification_incomplete_or_cancelled_9f3dca", "Verification incomplete or cancelled."))
                         }
                     }
                 },
                 SettingOnClick(
-                    title = "Forza nuova verifica manuale",
+                    title = ExtensionText.get("providers.force_a_new_manual_verification_66c563", "Force a new manual verification"),
                     key = "force_verify",
-                    summary = "Tenta immediatamente una nuova verifica della sessione anche prima della scadenza."
+                    summary = ExtensionText.get("providers.try_verifying_the_session_again_immediately_even_b55681", "Try verifying the session again immediately, even before it expires.")
                 ) {
                     extensionScope.launch {
-                        manager.notice("Avvio verifica forzata... Completa il controllo nella finestra WebView.")
+                        manager.notice(ExtensionText.get("providers.starting_forced_verification_complete_the_check__6c1dde", "Starting forced verification… Complete the check in the WebView window."))
                         manager.manualVerify(force = true)
                     }
                 }
@@ -229,14 +235,14 @@ open class TidalExtension internal constructor(
         )
 
         val prefCategory = SettingCategory(
-            title = "Preferenze catalogo",
+            title = ExtensionText.get("providers.catalog_preferences_316a3f", "Catalog preferences"),
             key = "cat_prefs",
             items = listOf(
                 SettingList(
-                    title = "Paese catalogo Tidal",
+                    title = ExtensionText.get("providers.tidal_catalog_country_8abae3", "Tidal catalog country"),
                     key = KEY_COUNTRY_CODE,
-                    summary = "Imposta la nazione per il catalogo e le nuove uscite.",
-                    entryTitles = listOf("Stati Uniti (US)", "Italia (IT)", "Regno Unito (GB)", "Germania (DE)", "Francia (FR)"),
+                    summary = ExtensionText.get("providers.choose_the_country_for_the_catalog_and_new_relea_85f18b", "Choose the country for the catalog and new releases."),
+                    entryTitles = listOf("US", "IT", "GB", "DE", "FR").map { "${ExtensionText.country(it)} ($it)" },
                     entryValues = listOf("US", "IT", "GB", "DE", "FR"),
                     defaultEntryIndex = 0
                 )
@@ -244,26 +250,26 @@ open class TidalExtension internal constructor(
         )
 
         val logCategory = SettingCategory(
-            title = "Diagnostica e Log",
+            title = ExtensionText.get("providers.diagnostics_and_logs_14910f", "Diagnostics and logs"),
             key = "cat_logs",
             items = listOf(
                 SettingOnClick(
-                    title = "Mostra ultimi eventi",
+                    title = ExtensionText.get("providers.show_recent_events_6fdad8", "Show recent events"),
                     key = "show_logs",
-                    summary = logs.snapshot().firstOrNull() ?: "Nessun evento recente."
+                    summary = logs.snapshot().firstOrNull() ?: ExtensionText.get("providers.no_recent_events_ab581b", "No recent events.")
                 ) {
                     val snapshot = logs.snapshot()
-                    val msg = if (snapshot.isEmpty()) "Nessun log disponibile."
+                    val msg = if (snapshot.isEmpty()) ExtensionText.get("providers.no_logs_available_c9c818", "No logs available.")
                     else snapshot.take(3).joinToString("\n")
                     manager.notify(msg)
                 },
                 SettingOnClick(
-                    title = "Cancella log diagnostici",
+                    title = ExtensionText.get("providers.clear_diagnostic_logs_8cb429", "Clear diagnostic logs"),
                     key = "clear_logs",
-                    summary = "Azzera la cronologia degli eventi."
+                    summary = ExtensionText.get("providers.clear_the_event_history_c7fdb9", "Clear the event history.")
                 ) {
                     logs.clear()
-                    manager.notify("Log cancellati.")
+                    manager.notify(ExtensionText.get("providers.logs_cleared_0cc5d9", "Logs cleared."))
                 }
             )
         )
@@ -288,16 +294,16 @@ open class TidalExtension internal constructor(
 
             buildList {
                 if (newAlbums.isNotEmpty()) {
-                    add(Shelf.Lists.Items("tidal_new_albums", "Nuove uscite · Album", newAlbums))
+                    add(Shelf.Lists.Items("tidal_new_albums", ExtensionText.get("providers.new_releases_albums_9b3521", "New releases · Albums"), newAlbums))
                 }
                 if (topTracks.isNotEmpty()) {
-                    add(Shelf.Lists.Tracks("tidal_top_tracks", "Brani più ascoltati", topTracks))
+                    add(Shelf.Lists.Tracks("tidal_top_tracks", ExtensionText.get("providers.most_played_tracks_4db593", "Most played tracks"), topTracks))
                 }
                 if (newTracks.isNotEmpty()) {
-                    add(Shelf.Lists.Tracks("tidal_new_tracks", "Nuove uscite · Singoli", newTracks))
+                    add(Shelf.Lists.Tracks("tidal_new_tracks", ExtensionText.get("providers.new_releases_singles_6d86a9", "New releases · Singles"), newTracks))
                 }
                 if (playlists.isNotEmpty()) {
-                    add(Shelf.Lists.Items("tidal_playlists", "Playlist consigliate", playlists))
+                    add(Shelf.Lists.Items("tidal_playlists", ExtensionText.get("providers.recommended_playlists_dc3a22", "Recommended playlists"), playlists))
                 }
             }
         }
@@ -309,11 +315,11 @@ open class TidalExtension internal constructor(
     override suspend fun loadSearchFeed(query: String): Feed<Shelf> {
         val trimmed = query.trim()
         val tabs = listOf(
-            Tab("all", "Tutto"),
-            Tab("tracks", "Brani"),
-            Tab("albums", "Album"),
-            Tab("artists", "Artisti"),
-            Tab("playlists", "Playlist")
+            Tab("all", ExtensionText.get("providers.all_a52ace", "All")),
+            Tab("tracks", ExtensionText.get("providers.tracks_889801", "Tracks")),
+            Tab("albums", ExtensionText.get("providers.albums_57bca6", "Albums")),
+            Tab("artists", ExtensionText.get("providers.artists_94e3e8", "Artists")),
+            Tab("playlists", ExtensionText.get("providers.playlists_dcd0a4", "Playlists"))
         )
 
         return Feed(tabs) { tab ->
@@ -351,16 +357,16 @@ open class TidalExtension internal constructor(
 
                 buildList {
                     if (tracks.isNotEmpty()) {
-                        add(Shelf.Lists.Tracks("search_tracks", if (wantAll) "Brani" else "Risultati Brani", tracks))
+                        add(Shelf.Lists.Tracks("search_tracks", if (wantAll) ExtensionText.get("providers.tracks_889801", "Tracks") else ExtensionText.get("providers.track_results_b7aff2", "Track results"), tracks))
                     }
                     if (albums.isNotEmpty()) {
-                        add(Shelf.Lists.Items("search_albums", if (wantAll) "Album" else "Risultati Album", albums))
+                        add(Shelf.Lists.Items("search_albums", if (wantAll) ExtensionText.get("providers.albums_57bca6", "Albums") else ExtensionText.get("providers.album_results_9036a7", "Album results"), albums))
                     }
                     if (artists.isNotEmpty()) {
-                        add(Shelf.Lists.Items("search_artists", if (wantAll) "Artisti" else "Risultati Artisti", artists))
+                        add(Shelf.Lists.Items("search_artists", if (wantAll) ExtensionText.get("providers.artists_94e3e8", "Artists") else ExtensionText.get("providers.artist_results_f82f4f", "Artist results"), artists))
                     }
                     if (playlists.isNotEmpty()) {
-                        add(Shelf.Lists.Items("search_playlists", if (wantAll) "Playlist" else "Risultati Playlist", playlists))
+                        add(Shelf.Lists.Items("search_playlists", if (wantAll) ExtensionText.get("providers.playlists_dcd0a4", "Playlists") else ExtensionText.get("providers.playlist_results_804b1f", "Playlist results"), playlists))
                     }
                 }
             }
@@ -385,7 +391,7 @@ open class TidalExtension internal constructor(
     override suspend fun loadStreamableMedia(streamable: Streamable, isDownload: Boolean): Streamable.Media {
         val trackId = streamable.extras["id"] ?: streamable.id
         val stream = resolver.resolveStream(trackId)
-            ?: throw IllegalStateException("Impossibile risolvere il flusso FLAC per il brano Tidal ($trackId)")
+            ?: throw IllegalStateException(ExtensionText.get("providers.unable_to_resolve_the_flac_stream_for_tidal_trac_b3b2ea", "Unable to resolve the FLAC stream for Tidal track %1\$s", trackId))
 
         return if (!stream.url.isNullOrBlank()) {
             stream.url.toServerMedia(type = Streamable.SourceType.Progressive)
@@ -404,7 +410,7 @@ open class TidalExtension internal constructor(
                 )
             }
         } else {
-            throw IllegalStateException("Stream FLAC non disponibile")
+            throw IllegalStateException(ExtensionText.get("providers.flac_stream_unavailable_edae7c", "FLAC stream unavailable"))
         }
     }
 
@@ -444,10 +450,10 @@ open class TidalExtension internal constructor(
 
             buildList {
                 if (topTracks.isNotEmpty()) {
-                    add(Shelf.Lists.Tracks("artist_top_$id", "Brani popolari", topTracks))
+                    add(Shelf.Lists.Tracks("artist_top_$id", ExtensionText.get("providers.popular_tracks_dcb8d9", "Popular tracks"), topTracks))
                 }
                 if (albums.isNotEmpty()) {
-                    add(Shelf.Lists.Items("artist_albums_$id", "Album", albums))
+                    add(Shelf.Lists.Items("artist_albums_$id", ExtensionText.get("providers.albums_57bca6", "Albums"), albums))
                 }
             }
         }
@@ -475,7 +481,7 @@ open class TidalExtension internal constructor(
         val trackId = TidalConverter.extractNumericId(item.id)
         return Radio(
             id = "tid:radio:$trackId",
-            title = "Radio · ${item.title}",
+            title = ExtensionText.get("providers.radio_1_s_736db9", "Radio: %1\$s", item.title),
             cover = item.cover
         )
     }

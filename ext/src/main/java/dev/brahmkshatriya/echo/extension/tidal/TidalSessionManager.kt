@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.extension.tidal
 
+import dev.brahmkshatriya.echo.extension.ExtensionText
+
 import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.await
 import dev.brahmkshatriya.echo.common.helpers.WebViewClient
 import dev.brahmkshatriya.echo.common.helpers.WebViewRequest
@@ -200,17 +202,17 @@ class TidalSessionManager(
 
     fun sessionSummaryForUi(): String {
         val stored = getStoredSession()
-        val base = if (stored == null) "Nessuna sessione attiva"
+        val base = if (stored == null) ExtensionText.get("providers.no_active_session_1f9dae", "No active session")
         else {
             val exp = stored.expiresAtEpochMs()
             if (exp != null) {
                 val diff = exp - clock()
-                if (diff > 0L) "Attiva (scade tra ~${TidalDiagnostics.humanWait(diff)})"
-                else "Scaduta"
-            } else "Attiva"
+                if (diff > 0L) ExtensionText.get("providers.active_expires_in_approximately_1_s_76e1d9", "Active (expires in approximately %1\$s)", TidalDiagnostics.humanWait(diff))
+                else ExtensionText.get("providers.expired_424a25", "Expired")
+            } else ExtensionText.get("providers.active_923406", "Active")
         }
         val serverWait = remainingServerWait()
-        return if (serverWait > 0L) "$base · Attesa server: ${TidalDiagnostics.humanWait(serverWait)}"
+        return if (serverWait > 0L) ExtensionText.get("providers.1_s_server_wait_2_s_e5f086", "%1\$s · Server wait: %2\$s", base, TidalDiagnostics.humanWait(serverWait))
         else base
     }
 
@@ -403,7 +405,7 @@ class TidalSessionManager(
         if (!verifyMutex.tryLock()) {
             if (!automatic) {
                 log("Tidal: una verifica è già aperta; completala o chiudila prima di riprovare.")
-                notify("Una verifica è già aperta. Completa o chiudi quella pagina.")
+                notify(ExtensionText.get("providers.a_verification_is_already_open_complete_or_close_5a4def", "A verification is already open. Complete or close that page."))
             }
             return@withContext VerificationStatus.BUSY
         }
@@ -411,7 +413,7 @@ class TidalSessionManager(
             if (getPendingVerification() != null) {
                 if (!automatic) {
                     log("Tidal: una verifica è già aperta; completala o chiudila prima di riprovare.")
-                    notify("Una verifica è già aperta. Completa o chiudi quella pagina.")
+                    notify(ExtensionText.get("providers.a_verification_is_already_open_complete_or_close_5a4def", "A verification is already open. Complete or close that page."))
                 }
                 return@withContext VerificationStatus.BUSY
             }
@@ -421,12 +423,12 @@ class TidalSessionManager(
                 val guardWait = maxOf(0L, getWaitUntil(KEY_FORCE_GUARD) - clock())
                 if (serverWait > 0L) {
                     log("Tidal: verifica manuale in attesa del server; ancora circa ${TidalDiagnostics.humanWait(serverWait)}.")
-                    notify("Il server richiede ancora ${TidalDiagnostics.humanWait(serverWait)} di attesa.")
+                    notify(ExtensionText.get("providers.the_server_requires_another_1_s_of_waiting_de8104", "The server requires another %1\$s of waiting.", TidalDiagnostics.humanWait(serverWait)))
                     return@withContext VerificationStatus.RATE_LIMITED
                 }
                 if (guardWait > 0L) {
                     log("Tidal: attendi ancora circa ${TidalDiagnostics.humanWait(guardWait)} prima di un altro tentativo manuale.")
-                    notify("Attendi ${TidalDiagnostics.humanWait(guardWait)} prima di un altro tentativo manuale.")
+                    notify(ExtensionText.get("providers.wait_1_s_before_trying_again_manually_6edf60", "Wait %1\$s before trying again manually.", TidalDiagnostics.humanWait(guardWait)))
                     return@withContext VerificationStatus.RATE_LIMITED
                 }
                 setWaitUntil(KEY_FORCE_GUARD, clock() + 30_000L)
@@ -468,10 +470,10 @@ class TidalSessionManager(
                         log("Tidal: avvio verifica non disponibile (HTTP ${r.code}).")
                         if (r.code == 429) {
                             parseAndApplyRetryAfter(r, KEY_SERVER_WAIT)
-                            if (!automatic) notify("Tidal: server HTTP 429. Riprova più tardi.")
+                            if (!automatic) notify(ExtensionText.get("providers.tidal_server_http_429_try_again_later_2713f2", "Tidal: server HTTP 429. Try again later."))
                             return@withContext VerificationStatus.RATE_LIMITED
                         }
-                        if (!automatic) notify("Verifica Tidal non disponibile. Riprova più tardi.")
+                        if (!automatic) notify(ExtensionText.get("providers.tidal_verification_unavailable_try_again_later_2ded56", "Tidal verification unavailable. Try again later."))
                         return@withContext VerificationStatus.FAILED
                     }
                     parsed
@@ -480,18 +482,18 @@ class TidalSessionManager(
                 throw ce
             } catch (err: Throwable) {
                 log("Tidal: gateway non raggiungibile: ${TidalDiagnostics.failureCategory(err)}.")
-                if (!automatic) notify("Verifica Tidal non disponibile. Controlla la rete.")
+                if (!automatic) notify(ExtensionText.get("providers.tidal_verification_unavailable_check_your_connec_0bac88", "Tidal verification unavailable. Check your connection."))
                 return@withContext VerificationStatus.FAILED
             } ?: run {
                 log("Tidal: risposta bootstrap non valida.")
-                if (!automatic) notify("Risposta server Tidal non riconosciuta.")
+                if (!automatic) notify(ExtensionText.get("providers.unrecognized_tidal_server_response_8ee6fb", "Unrecognized Tidal server response."))
                 return@withContext VerificationStatus.FAILED
             }
 
             if (saveSessionFromData(bootstrapJson, install, null)) {
                 clearPendingVerification()
                 log("Tidal: sessione verificata direttamente!")
-                if (!automatic) notify("Tidal attivato con successo!")
+                if (!automatic) notify(ExtensionText.get("providers.tidal_activated_successfully_59d598", "Tidal activated successfully!"))
                 return@withContext VerificationStatus.COMPLETE
             }
 
@@ -499,13 +501,13 @@ class TidalSessionManager(
             val serverNonce = bootstrapJson.stringField("server_nonce").orEmpty().ifEmpty { challenge }
             if (challenge.isEmpty() || serverNonce.isEmpty()) {
                 log("Tidal: risposta di verifica non valida.")
-                if (!automatic) notify("Verifica Tidal non riconosciuta.")
+                if (!automatic) notify(ExtensionText.get("providers.unrecognized_tidal_verification_27bb22", "Unrecognized Tidal verification."))
                 return@withContext VerificationStatus.FAILED
             }
 
             val webView = webViewClientRef ?: run {
                 log("Tidal: WebView non disponibile.")
-                if (!automatic) notify("Impossibile aprire la verifica Tidal. Aggiorna Android System WebView.")
+                if (!automatic) notify(ExtensionText.get("providers.unable_to_open_tidal_verification_update_android_474afe", "Unable to open Tidal verification. Update Android System WebView."))
                 return@withContext VerificationStatus.AUTH_UNAVAILABLE
             }
 
@@ -528,7 +530,7 @@ class TidalSessionManager(
             savePendingVerification(pending)
             log("Tidal: pagina di verifica aperta${if (automatic) " automaticamente." else "."}")
             if (automatic) {
-                notify("Verifica automatica avviata. Completa la verifica nella finestra.")
+                notify(ExtensionText.get("providers.automatic_verification_started_complete_the_chec_711a04", "Automatic verification started. Complete the check in the window."))
             }
 
             val wvRequest = object : WebViewRequest.Headers<String> {
@@ -547,7 +549,7 @@ class TidalSessionManager(
             val webResult = try {
                 webView.await(
                     showWebView = true,
-                    reason = "Verifica Tidal",
+                    reason = ExtensionText.get("providers.tidal_verification_2202b7", "Tidal verification"),
                     request = wvRequest
                 )
             } catch (ce: CancellationException) {
@@ -556,7 +558,7 @@ class TidalSessionManager(
             } catch (_: Throwable) {
                 clearPendingVerification()
                 log("Tidal: apertura WebView fallita.")
-                if (!automatic) notify("Impossibile aprire la verifica Tidal. Aggiorna Android System WebView.")
+                if (!automatic) notify(ExtensionText.get("providers.unable_to_open_tidal_verification_update_android_474afe", "Unable to open Tidal verification. Update Android System WebView."))
                 return@withContext VerificationStatus.AUTH_UNAVAILABLE
             }
 
@@ -625,14 +627,14 @@ class TidalSessionManager(
                     throw IllegalStateException("EXCHANGE_FAILED")
                 }
                 log("Tidal: sessione verificata con successo.")
-                if (!pending.automatic) notify("Tidal verificato con successo!")
+                if (!pending.automatic) notify(ExtensionText.get("providers.tidal_verified_successfully_e8c33b", "Tidal verified successfully!"))
                 VerificationStatus.COMPLETE
             }
         } catch (ce: CancellationException) {
             throw ce
         } catch (_: Throwable) {
             log("Tidal: verifica non completata o annullata.")
-            if (!pending.automatic) notify("Verifica non completata. Riprova dalle impostazioni.")
+            if (!pending.automatic) notify(ExtensionText.get("providers.verification_incomplete_try_again_from_settings_9c21e9", "Verification incomplete. Try again from settings."))
             VerificationStatus.FAILED
         }
     }

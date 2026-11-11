@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.extension.tidal
 
+import dev.brahmkshatriya.echo.extension.ExtensionText
+
 import dev.brahmkshatriya.echo.common.helpers.ClientException
 import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.await
 import dev.brahmkshatriya.echo.common.models.Streamable
@@ -88,7 +90,7 @@ class TidalStreamResolver(
 
         val session = sessionManager.activeSession(deadlineMs)
             ?: run {
-                sessionManager.notice("Tidal FLAC richiede una verifica della sessione. Apri Impostazioni di Tidal in Echo e tocca 'Verifica sessione Tidal (WebView)'.")
+                sessionManager.notice(ExtensionText.get("providers.tidal_flac_requires_session_verification_open_ti_812be6", "Tidal FLAC requires session verification. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
                 throw ClientException.LoginRequired()
             }
 
@@ -96,7 +98,7 @@ class TidalStreamResolver(
             sessionManager.requestTicket(trackId, deadlineMs)
         } catch (e: TidalGatewayException) {
             if (e.message == "AUTH_REQUIRED") {
-                sessionManager.notice("Tidal FLAC: sessione scaduta o non valida. Apri Impostazioni di Tidal in Echo e tocca 'Verifica sessione Tidal (WebView)'.")
+                sessionManager.notice(ExtensionText.get("providers.tidal_flac_session_expired_or_invalid_open_tidal_a586af", "Tidal FLAC: session expired or invalid. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
                 throw ClientException.LoginRequired()
             }
             throw e
@@ -118,7 +120,7 @@ class TidalStreamResolver(
             )
         } catch (e: TidalGatewayException) {
             if (e.message == "AUTH_REQUIRED") {
-                sessionManager.notice("Tidal FLAC: sessione scaduta o non valida. Apri Impostazioni di Tidal in Echo e tocca 'Verifica sessione Tidal (WebView)'.")
+                sessionManager.notice(ExtensionText.get("providers.tidal_flac_session_expired_or_invalid_open_tidal_a586af", "Tidal FLAC: session expired or invalid. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
                 throw ClientException.LoginRequired()
             }
             throw e

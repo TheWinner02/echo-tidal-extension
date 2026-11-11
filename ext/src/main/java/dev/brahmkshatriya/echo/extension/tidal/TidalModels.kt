@@ -1,5 +1,7 @@
 package dev.brahmkshatriya.echo.extension.tidal
 
+import dev.brahmkshatriya.echo.extension.ExtensionText
+
 import kotlinx.serialization.Serializable
 import java.time.Instant
 import java.time.ZoneId
@@ -88,17 +90,17 @@ object TidalDiagnostics {
     fun humanWait(ms: Long): String {
         if (ms <= 60_000L) {
             val seconds = maxOf(1L, (ms + 999L) / 1000L)
-            return "$seconds ${if (seconds == 1L) "secondo" else "secondi"}"
+            return ExtensionText.get("providers.1_d_s_7c37b9", "%1\$d s", seconds)
         }
         val minutes = (ms + 59_999L) / 60_000L
         if (minutes < 60L) {
-            return "$minutes ${if (minutes == 1L) "minuto" else "minuti"}"
+            return ExtensionText.get("providers.1_d_min_3122a2", "%1\$d min", minutes)
         }
         val hours = minutes / 60L
         val rest = minutes % 60L
-        val hLabel = "$hours ${if (hours == 1L) "ora" else "ore"}"
+        val hLabel = ExtensionText.get("providers.1_d_h_0c18fe", "%1\$d h", hours)
         return if (rest > 0L) {
-            "$hLabel e $rest ${if (rest == 1L) "minuto" else "minuti"}"
+            ExtensionText.get("providers.1_d_h_2_d_min_14b10f", "%1\$d h %2\$d min", hours, rest)
         } else {
             hLabel
         }
@@ -107,10 +109,10 @@ object TidalDiagnostics {
     fun failureCategory(err: Throwable?): String {
         if (err is TidalGatewayException) {
             return when (err.code) {
-                "NO_TICKET" -> "ticket non ricevuto"
-                "GATEWAY_UNAVAILABLE" -> "risposta del server non disponibile"
+                "NO_TICKET" -> ExtensionText.get("providers.ticket_not_received_a47522", "Ticket not received")
+                "GATEWAY_UNAVAILABLE" -> ExtensionText.get("providers.server_response_unavailable_064370", "Server response unavailable")
                 "TIME_BUDGET" -> "timeout"
-                else -> "errore non classificato"
+                else -> ExtensionText.get("providers.unclassified_error_34a2d1", "Unclassified error")
             }
         }
         val className = err?.javaClass?.simpleName?.lowercase().orEmpty()
@@ -119,12 +121,12 @@ object TidalDiagnostics {
             "sockettimeout" in className || "interruptedio" in className ||
                 "timeout" in msg || "timed out" in msg || "time out" in msg -> "timeout"
             "unknownhost" in className || "unknownhost" in msg ||
-                "unable to resolve host" in msg || "dns" in msg -> "DNS non raggiungibile"
+                "unable to resolve host" in msg || "dns" in msg -> ExtensionText.get("providers.dns_unreachable_169546", "DNS unreachable")
             "connect" in className || "connect" in msg ||
-                "network" in msg || "unreachable" in msg -> "connessione non disponibile"
-            "no_ticket" in msg -> "ticket non ricevuto"
-            "gateway_unavailable" in msg -> "risposta del server non disponibile"
-            else -> "errore non classificato"
+                "network" in msg || "unreachable" in msg -> ExtensionText.get("providers.connection_unavailable_a05d49", "Connection unavailable")
+            "no_ticket" in msg -> ExtensionText.get("providers.ticket_not_received_a47522", "Ticket not received")
+            "gateway_unavailable" in msg -> ExtensionText.get("providers.server_response_unavailable_064370", "Server response unavailable")
+            else -> ExtensionText.get("providers.unclassified_error_34a2d1", "Unclassified error")
         }
     }
 
