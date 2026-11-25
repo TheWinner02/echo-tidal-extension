@@ -397,7 +397,11 @@ open class TidalExtension internal constructor(
         } else if (!track.isrc.isNullOrBlank()) {
             api.getTrackByIsrc(track.isrc!!, getCountryCode()) ?: track
         } else track
+
         val cleanId = TidalConverter.extractNumericId(fetched.id).ifEmpty { id }
+        if (cleanId.isEmpty()) {
+            return fetched.copy(streamables = emptyList())
+        }
         val serverStream = Streamable.server(
             id = cleanId,
             quality = 1411,
