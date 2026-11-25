@@ -178,6 +178,15 @@ class TidalExtensionTest {
     }
 
     @Test
+    fun testTidalApiIsrcLookup() = runTest {
+        val api = TidalApi(OkHttpClient())
+        val track = api.getTrackByIsrc("USRC12601257")
+        assertNotNull(track)
+        assertEquals("Kamikazi", track?.title)
+        assertEquals("USRC12601257", track?.isrc)
+    }
+
+    @Test
     fun testTidalExtensionSettingsAndInitialization() = runTest {
         val ext = TidalExtension()
         val settings = MockedSettings()

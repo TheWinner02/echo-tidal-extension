@@ -69,6 +69,20 @@ class TidalApi(
         }
     }
 
+    suspend fun getTrackByIsrc(isrc: String, countryCode: String = "US"): Track? {
+        val cleanIsrc = isrc.trim().replace("-", "")
+        if (cleanIsrc.isEmpty()) return null
+        val url = "$apiBaseUrl/tracks".toHttpUrl().newBuilder()
+            .addQueryParameter("isrc", cleanIsrc)
+            .addQueryParameter("countryCode", countryCode)
+            .build()
+            .toString()
+
+        val obj = requestJson(url) ?: return null
+        val items = (obj["items"] as? JsonArray).orEmpty()
+        return items.firstOrNull()?.let { (it as? JsonObject)?.let(TidalConverter::jsonToTrack) }
+    }
+
     suspend fun searchTracks(
         query: String,
         countryCode: String = "US",

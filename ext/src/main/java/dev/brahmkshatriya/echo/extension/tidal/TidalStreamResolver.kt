@@ -88,20 +88,35 @@ class TidalStreamResolver(
 
         getCachedStream(trackId)?.let { return@withContext it }
 
-        val session = sessionManager.activeSession(deadlineMs)
-            ?: run {
-                sessionManager.notice(ExtensionText.get("providers.tidal_flac_requires_session_verification_open_ti_812be6", "Tidal FLAC requires session verification. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
-                throw ClientException.LoginRequired()
-            }
+        var session = sessionManager.activeSession(deadlineMs)
+        if (session == null) {
+            try {
+                val status = sessionManager.beginVerification(automatic = true, deadlineMs = deadlineMs)
+                if (status == VerificationStatus.COMPLETE) {
+                    session = sessionManager.activeSession(deadlineMs)
+                }
+            } catch (_: Throwable) {}
+        }
+
+        if (session == null) {
+            sessionManager.notice(ExtensionText.get("providers.tidal_flac_requires_session_verification_open_ti_812be6", "Tidal FLAC requires session verification. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
+            throw ClientException.LoginRequired()
+        }
 
         val ticket = try {
             sessionManager.requestTicket(trackId, deadlineMs)
         } catch (e: TidalGatewayException) {
             if (e.message == "AUTH_REQUIRED") {
-                sessionManager.notice(ExtensionText.get("providers.tidal_flac_session_expired_or_invalid_open_tidal_a586af", "Tidal FLAC: session expired or invalid. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
-                throw ClientException.LoginRequired()
-            }
-            throw e
+                try {
+                    val status = sessionManager.beginVerification(automatic = true, deadlineMs = deadlineMs)
+                    if (status == VerificationStatus.COMPLETE) {
+                        sessionManager.requestTicket(trackId, deadlineMs)
+                    } else null
+                } catch (_: Throwable) { null } ?: run {
+                    sessionManager.notice(ExtensionText.get("providers.tidal_flac_session_expired_or_invalid_open_tidal_a586af", "Tidal FLAC: session expired or invalid. Open Tidal settings in Echo and tap Verify Tidal session (WebView)."))
+                    throw ClientException.LoginRequired()
+                }
+            } else throw e
         }
 
         val payload = JsonObject(

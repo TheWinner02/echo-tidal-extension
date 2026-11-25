@@ -102,6 +102,7 @@ open class TidalExtension internal constructor(
         const val KEY_COUNTRY_CODE = "tidal_country_code"
         private const val DEFAULT_COUNTRY_CODE = "US"
         private const val HEARTBEAT_INTERVAL_MS = 5L * 60L * 1000L
+        private val ISRC_REGEX = Regex("^[A-Za-z]{2}[A-Za-z0-9]{3}[0-9]{7}$")
     }
 
     private lateinit var settings: Settings
@@ -314,6 +315,19 @@ open class TidalExtension internal constructor(
 
     override suspend fun loadSearchFeed(query: String): Feed<Shelf> {
         val trimmed = query.trim()
+        val isrcCandidate = when {
+            trimmed.startsWith("isrc:", ignoreCase = true) -> trimmed.substring(5).trim().replace("-", "")
+            ISRC_REGEX.matches(trimmed.replace("-", "")) -> trimmed.replace("-", "")
+            else -> null
+        }
+        if (isrcCandidate != null) {
+            val country = getCountryCode()
+            val track = runCatching { api.getTrackByIsrc(isrcCandidate, country) }.getOrNull()
+            if (track != null) {
+                return listOf(Shelf.Lists.Tracks("search_tracks", ExtensionText.get("providers.tracks_889801", "Tracks"), listOf(track))).toFeed()
+            }
+        }
+
         val tabs = listOf(
             Tab("all", ExtensionText.get("providers.all_a52ace", "All")),
             Tab("tracks", ExtensionText.get("providers.tracks_889801", "Tracks")),
@@ -378,12 +392,17 @@ open class TidalExtension internal constructor(
 
     override suspend fun loadTrack(track: Track, isDownload: Boolean): Track {
         val id = TidalConverter.extractNumericId(track.id)
-        val fetched = api.getTrack(id, getCountryCode()) ?: track
+        val fetched = if (id.isNotEmpty()) {
+            api.getTrack(id, getCountryCode()) ?: track
+        } else if (!track.isrc.isNullOrBlank()) {
+            api.getTrackByIsrc(track.isrc!!, getCountryCode()) ?: track
+        } else track
+        val cleanId = TidalConverter.extractNumericId(fetched.id).ifEmpty { id }
         val serverStream = Streamable.server(
-            id = id,
+            id = cleanId,
             quality = 1411,
             title = "Tidal FLAC",
-            extras = mapOf("id" to id)
+            extras = mapOf("id" to cleanId)
         )
         return fetched.copy(streamables = listOf(serverStream))
     }

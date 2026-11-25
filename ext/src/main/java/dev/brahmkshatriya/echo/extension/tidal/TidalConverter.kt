@@ -94,7 +94,9 @@ object TidalConverter {
             album = album,
             cover = cover,
             duration = durationMs,
-            plays = obj["popularity"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+            plays = obj["popularity"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+            isrc = obj["isrc"]?.jsonPrimitive?.contentOrNull,
+            isExplicit = obj["explicit"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
         )
     }
 
